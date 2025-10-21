@@ -1,5 +1,5 @@
 # CoffieLang 
-Compilador baseado em Java, criado com ANTLR 4.
+Construindo um compilador baseado em Java, criado com ANTLR 4.
 
 ## Estrutura
 - `grammar/` → gramática ANTLR (`.g4`)

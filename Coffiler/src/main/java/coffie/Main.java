@@ -3,56 +3,53 @@ package coffie;
 import org.antlr.v4.runtime.*;
 import org.antlr.v4.runtime.tree.*;
 import java.nio.file.*;
-import java.io.*;
 
 public class Main {
-    public static void main(String[] args) throws Exception {
-        if (args.length < 1) {
-            System.err.println("Uso: java coffie.Main <arquivo.java> [--tokens]");
+
+    public static void main(String[] args) {
+
+        if (args.length == 0) {
+            System.err.println("Uso: java -jar coffiler.jar <arquivo.coffie>");
             System.exit(1);
         }
 
-        String sourcePath = args[0];
-        boolean showTokens = args.length > 1 && args[1].equals("--tokens");
+        try {
+            // Lê arquivo
+            String source = Files.readString(Path.of(args[0]));
+            CharStream input = CharStreams.fromString(source);
 
-        CharStream input = CharStreams.fromPath(Paths.get(sourcePath));
+            // Cria lexer e adiciona tratamento de erro
+            CoffieLangLexer lexer = new CoffieLangLexer(input);
+            lexer.removeErrorListeners();
+            lexer.addErrorListener(new BaseErrorListener() {
+                @Override
+                public void syntaxError(Recognizer<?, ?> recognizer, Object offendingSymbol, 
+                                        int line, int charPositionInLine, String msg, RecognitionException e) {
+                    System.err.printf("[ERRO LEXICO] linha %d:%d %s%n", line, charPositionInLine, msg);
+                }
+            });
 
-        CoffieLangLexer lexer = new CoffieLangLexer(input);
-        CommonTokenStream tokens = new CommonTokenStream(lexer);
-        CoffieLangParser parser = new CoffieLangParser(tokens);
+            CommonTokenStream tokens = new CommonTokenStream(lexer);
 
-        if (showTokens) {
-            System.out.println("=== TOKENS GERADOS ===");
-            lexer.reset();
-            for (Token token = lexer.nextToken();
-                 token.getType() != Token.EOF;
-                 token = lexer.nextToken()) {
+            // Parser
+            CoffieLangParser parser = new CoffieLangParser(tokens);
+            parser.removeErrorListeners();
+            parser.addErrorListener(new BaseErrorListener() {
+                @Override
+                public void syntaxError(Recognizer<?, ?> recognizer, Object offendingSymbol, 
+                                        int line, int charPositionInLine, String msg, RecognitionException e) {
+                    System.err.printf("[ERRO SINTATICO] linha %d:%d %s%n", line, charPositionInLine, msg);
+                }
+            });
 
-                String tokenName = CoffieLangLexer.VOCABULARY.getSymbolicName(token.getType());
-                System.out.printf("Linha %-3d  Col %-3d  %-20s  '%s'%n",
-                        token.getLine(),
-                        token.getCharPositionInLine(),
-                        tokenName,
-                        token.getText());
-            }
-            return;
+            // Executa a regra inicial
+            ParseTree tree = parser.prog();
+
+            // Exibe arvore  
+            System.out.println(tree.toStringTree(parser));
+
+        } catch (Exception e) {
+            System.err.println("Erro ao ler ou processar arquivo: " + e.getMessage());
         }
-
-        parser.removeErrorListeners();
-        lexer.removeErrorListeners();
-
-        BaseErrorListener listener = new BaseErrorListener() {
-            @Override
-            public void syntaxError(Recognizer<?, ?> recognizer, Object offendingSymbol,
-                                    int line, int charPositionInLine, String msg, RecognitionException e) {
-                System.err.printf("syntax error at %d:%d: %s%n", line, charPositionInLine, msg);
-            }
-        };
-
-        parser.addErrorListener(listener);
-        lexer.addErrorListener(listener);
-
-        ParseTree tree = parser.program();
-        System.out.println("parse: ok");
     }
 }

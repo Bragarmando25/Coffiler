@@ -2,211 +2,258 @@ grammar CoffieLang;
 
 @header {
 package coffie;
+import java.util.*;
 }
 
+
 // =======================
-// PARSER RULES
+//  Regras de PARSER
 // =======================
 
-program
-  : classDeclaration+ EOF
-  ;
+prog
+    : line+                         // programa = varias linhas
+    ;
 
-classDeclaration
-  : 'public'? 'class' Identifier LBRACE classBody* RBRACE
-  ;
+line
+    : atrib EOL                     // declaracao/atribuicao
+    | input EOL                     // leitura
+    | output EOL                    // escrita
+    | controlflow                   // if / if-else
+    | loop                          // while
+    | function                      // declaracao de funcao
+    | callFunction EOL              // chamada de funcao
+    | lib                           // #import "arquivo"
+    | typecast EOL                  // cast (int) x;
+    | typeof EOL                    // typeof(x);
+    | ternary EOL                   // cond ? a : b;
+    ;
 
-classBody
-  : methodDeclaration
-  | fieldDeclaration
-  | statement
-  ;
+// -----------------------
+//  ATRIBUICAO / DECLARACAO
+// -----------------------
 
-fieldDeclaration
-  : type Identifier (ASSIGN expression)? SEMI
-  ;
+atrib
+    : VAR ASSIGN STR                        # VariavelExistenteString
+    | STRING VAR ASSIGN STR                # VariavelNovaString
+    | (INTEGER | DOUBLE) VAR ASSIGN expr   # VariavelNova
+    | BOOLEAN VAR ASSIGN BOOL              # VariavelNovaBoolean
+    | VAR ASSIGN expr                      # VariavelExistente
+    | VAR ASSIGN BOOL                      # VariavelExistenteBoolean
+    ;
 
-methodDeclaration
-  : 'public'? 'static'? type Identifier LPAREN parameterList? RPAREN block
-  ;
+// -----------------------
+//  I/O
+// -----------------------
 
-parameterList
-  : parameter (COMMA parameter)*
-  ;
+input
+    : READ LP VAR RP                       # InputVar
+    ;
 
-parameter
-  : type arrayType? Identifier
-  ;
+output
+    : PRINT LP STR RP                      # OutputStr
+    | PRINT LP VAR RP                      # OutputVar
+    | PRINT LP expr RP                     # OutputExpr
+    ;
 
-arrayType
-  : LBRACK RBRACK
-  ;
+// -----------------------
+//  EXPRESSOES ARITMETICAS
+// -----------------------
 
-// ---- Statements ----
+expr
+    : term SUM expr                        # ExprSum
+    | term SUB expr                        # ExprSub
+    | term                                 # ExprTerm
+    ;
 
-statement
-  : block
-  | variableDeclaration
-  | ifStatement
-  | whileStatement
-  | forStatement
-  | returnStatement
-  | printStatement
-  | expressionStatement
-  | SEMI
-  ;
+term
+    : factor MULT term                     # TermMult
+    | factor DIV term                      # TermDiv
+    | factor MOD term                      # TermMod
+    | factor                               # TermFactor
+    ;
+
+factor
+    : NUM                                  # FactorNum
+    | NUMD                                 # FactorNumD
+    | VAR                                  # FactorVar
+    | STR                                  # FactorStr
+    | BOOL                                 # FactorBool
+    | LP expr RP                           # FactorExpr
+    ;
+
+// -----------------------
+//  EXPRESSOES BOOLEANAS
+// -----------------------
+
+bexpr
+    : expr ( (LT | LE | GT | GE | EQ | NE) expr )?   // comparacoes: x < y, x == y, etc
+    | BOOL
+    | VAR
+    ;
+
+// -----------------------
+//  CONTROLE DE FLUXO (IF / IF-ELSE)
+// -----------------------
+
+controlflow
+    : IF LP bexpr RP block                          # IfBlock
+    | IF LP bexpr RP block ELSE block               # IfElseBlock
+    ;
+
+// -----------------------
+//  LACO (WHILE)
+// -----------------------
+
+loop
+    : WHILE LP bexpr RP block                       # LoopBlock
+    ;
+
+// -----------------------
+//  BLOCOS
+// -----------------------
 
 block
-  : LBRACE statement* RBRACE
-  ;
+    : LB line* RB                                   # BlockLine
+    ;
 
-variableDeclaration
-  : type Identifier (ASSIGN expression)? SEMI
-  ;
+// Bloco de funcao com retorno
+rblock
+    : LB rbody RB                                   # FnBlockLine
+    ;
 
-ifStatement
-  : 'if' LPAREN expression RPAREN statement ('else' statement)?
-  ;
+rbody
+    : line* RETURN expr? EOL                        # FnBodyLine
+    ;
 
-whileStatement
-  : 'while' LPAREN expression RPAREN statement
-  ;
+// -----------------------
+//  FUNCOES
+// -----------------------
 
-forStatement
-  : 'for' LPAREN (variableDeclaration | expressionStatement | SEMI)
-        expression? SEMI
-        expressionStatement? RPAREN statement
-  ;
-
-returnStatement
-  : 'return' expression? SEMI
-  ;
-
-// ---- Print (System.out.println) ----
-
-printStatement
-  : 'System' DOT 'out' DOT 'println' LPAREN expression? RPAREN SEMI
-  ;
-
-// ---- Expression rules ----
-
-expressionStatement
-  : (expression | methodCall) SEMI
-  ;
-
-expression
-  : assignmentExpression
-  ;
-
-assignmentExpression
-  : Identifier (DOT Identifier)* ASSIGN expression
-  | logicalOrExpression
-  ;
-
-logicalOrExpression
-  : logicalAndExpression (OR_OR logicalAndExpression)*
-  ;
-
-logicalAndExpression
-  : equalityExpression (AND_AND equalityExpression)*
-  ;
-
-equalityExpression
-  : relationalExpression ((EQ | NEQ) relationalExpression)*
-  ;
-
-relationalExpression
-  : additiveExpression ((LT | GT | LE | GE) additiveExpression)*
-  ;
-
-additiveExpression
-  : multiplicativeExpression ((PLUS | MINUS) multiplicativeExpression)*
-  ;
-
-multiplicativeExpression
-  : unaryExpression ((STAR | DIV | MOD) unaryExpression)*
-  ;
-
-unaryExpression
-  : (PLUS | MINUS | NOT)? primaryExpression
-  ;
-
-primaryExpression
-  : Identifier (DOT Identifier)*                      // acesso a campos e variáveis
-  | literal                                           // literais
-  | LPAREN expression RPAREN                          // expressões entre parênteses
-  ;
-
-// ---- Method calls ----
-
-methodCall
-  : Identifier (DOT Identifier)* LPAREN argumentList? RPAREN
-  ;
-
-argumentList
-  : expression (COMMA expression)*
-  ;
-
-// ---- Types & literals ----
+function
+    : type VAR LP params? RP rblock                 # FnDecl
+    ;
 
 type
-  : 'int'
-  | 'float'
-  | 'double'
-  | 'boolean'
-  | 'String'
-  | 'void'
-  ;
+    : INTEGER
+    | DOUBLE
+    | STRING
+    | BOOLEAN
+    | VOID
+    ;
 
-literal
-  : IntegerLiteral
-  | FloatLiteral
-  | BooleanLiteral
-  | StringLiteral
-  ;
+params
+    : type VAR (SEP type VAR)*                      # ParamList
+    ;
+
+paramsCall
+    : expr (SEP expr)*                              # ParamCallList
+    ;
+
+// chamada de funcao: f(), f(x), f(a, b + c)
+callFunction
+    : VAR LP paramsCall? RP                         # FuncInvoc
+    ;
+
+// -----------------------
+//  BIBLIOTECAS / IMPORT
+// -----------------------
+
+lib
+    : IMPORT STR EOL                                # LibStmt
+    ;
+
+// -----------------------
+//  TYPECAST
+// -----------------------
+
+typecast
+    : LP type RP expr                               # TypeCast
+    ;
+
+// -----------------------
+//  TYPEOF
+// -----------------------
+
+typeof
+    : TYPEOF LP VAR RP                              # TypeOfVar
+    ;
+
+// -----------------------
+//  OPERADOR TERNARIO
+// -----------------------
+
+ternary
+    : bexpr '?' expr ':' expr                       # TernaryCond
+    ;
 
 // =======================
-// LEXER RULES
+//  Regras de LEXER
 // =======================
 
-// Delimiters
-LPAREN  : '(' ;
-RPAREN  : ')' ;
-LBRACE  : '{' ;
-RBRACE  : '}' ;
-LBRACK  : '[' ;
-RBRACK  : ']' ;
-SEMI    : ';' ;
-COMMA   : ',' ;
-DOT     : '.' ;
+// Palavras-chave / simbolos
 
-// Operators
-ASSIGN  : '=' ;
-PLUS    : '+' ;
-MINUS   : '-' ;
-STAR    : '*' ;
-DIV     : '/' ;
-MOD     : '%' ;
-LT      : '<' ;
-GT      : '>' ;
-LE      : '<=' ;
-GE      : '>=' ;
-EQ      : '==' ;
-NEQ     : '!=' ;
-AND_AND : '&&' ;
-OR_OR   : '||' ;
-NOT     : '!' ;
+WHILE      : 'while';
+RETURN     : 'return';
+IMPORT     : '#import';
+TYPEOF     : 'typeof';
+IF         : 'if';
+ELSE       : 'else';
+EOL        : ';';
+PRINT      : 'print';
+READ       : 'read';
 
-// Literals
-IntegerLiteral : [0-9]+ ;
-FloatLiteral   : [0-9]+ '.' [0-9]* ;
-BooleanLiteral : 'true' | 'false' ;
-StringLiteral  : '"' (~["\\\r\n])* '"' ;
+INTEGER    : 'int';
+DOUBLE     : 'double';
+BOOLEAN    : 'bool';
+STRING     : 'str';
+VOID       : 'void';
 
-// Identifiers
-Identifier : [a-zA-Z_][a-zA-Z0-9_]* ;
+SUM        : '+';
+SUB        : '-';
+DIV        : '/';
+MULT       : '*';
+MOD        : '%';
+ASSIGN     : '=';
+SEP        : ',';
+LP         : '(';
+RP         : ')';
+LB         : '{';
+RB         : '}';
 
-// Comments & whitespace
-LINE_COMMENT : '//' ~[\r\n]* -> skip ;
-BLOCK_COMMENT : '/*' .*? '*/' -> skip ;
-WS : [ \t\r\n]+ -> skip ;
+LE         : '<=';
+LT         : '<';
+GT         : '>';
+GE         : '>=';
+EQ         : '==';
+NE         : '!=';
+
+// Literais
+
+NUMD       : DIGIT+ '.' DIGIT+;              // numero com ponto
+NUM        : DIGIT+;                         // inteiro
+
+BOOL       : 'true' | 'false';
+
+STR
+    : '"' (~["\r\n])* '"'                   // string simples entre aspas
+    ;
+
+// Identificadores
+
+VAR
+    : [a-zA-Z_] [a-zA-Z_0-9]*               // nome de variavel / funcao
+    ;
+
+// Comentarios e espacos
+
+COMMENT
+    : '//' ~[\r\n]* -> skip
+    ;
+
+WS
+    : [ \t\r\n]+ -> skip
+    ;
+
+// Fragmentos
+
+fragment DIGIT : [0-9];

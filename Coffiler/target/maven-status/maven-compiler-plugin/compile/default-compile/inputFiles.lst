@@ -1,5 +1,7 @@
-D:\Coffiler\src\main\java\coffie\CoffieLangBaseListener.java
-D:\Coffiler\src\main\java\coffie\CoffieLangLexer.java
-D:\Coffiler\src\main\java\coffie\CoffieLangListener.java
-D:\Coffiler\src\main\java\coffie\CoffieLangParser.java
+D:\Coffiler\target\generated-sources\antlr4\CoffieLangLexer.java
+D:\Coffiler\target\generated-sources\antlr4\CoffieLangParser.java
+D:\Coffiler\target\generated-sources\antlr4\CoffieLangListener.java
+D:\Coffiler\target\generated-sources\antlr4\CoffieLangVisitor.java
 D:\Coffiler\src\main\java\coffie\Main.java
+D:\Coffiler\target\generated-sources\antlr4\CoffieLangBaseListener.java
+D:\Coffiler\target\generated-sources\antlr4\CoffieLangBaseVisitor.java

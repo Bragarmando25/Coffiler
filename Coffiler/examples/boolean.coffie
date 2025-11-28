@@ -1,0 +1,17 @@
+public class Logica {
+    public static void main(String[] args) {
+        boolean a = true;
+        boolean b = false;
+        
+        if (a) {
+            System.out.println("A eh verdadeiro");
+        }
+        
+        int x = 10;
+        if (x > 5) {
+            System.out.println("X eh maior que 5");
+        } else {
+            System.out.println("X eh menor ou igual a 5");
+        }
+    }
+}

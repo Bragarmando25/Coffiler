@@ -1,0 +1,14 @@
+public class Funcoes {
+    
+    public int soma(int a, int b) {
+        return a + b;
+    }
+
+    public static void main(String[] args) {
+        Funcoes f = new Funcoes();
+        int resultado = 0;
+        // Chamada de método em objeto agora suportada pelo parser
+        resultado = f.soma(5, 3);
+        System.out.println(resultado);
+    }
+}

@@ -1,0 +1,45 @@
+#include <stdio.h>
+#define MAX 3
+
+struct Ponto {
+    int x;
+    int y;
+};
+
+union Dados {
+    int i;
+    int f; 
+};
+
+int main() {
+    // STRUCTS
+    struct Ponto p;
+    p.x = 10;
+    p.y = 20;
+    printf("Struct: X=%d, Y=%d (Soma: %d)\n", p.x, p.y, p.x + p.y);
+
+    // ARRAYS
+    int lista[MAX];
+    int k;
+    
+    // Preenchendo
+    for(k = 0; k < MAX; k = k + 1) {
+        lista[k] = k * 10;
+    }
+
+    // Lendo
+    printf("Array: ");
+    k = 0;
+    while(k < MAX) {
+        printf("%d ", lista[k]);
+        k = k + 1;
+    }
+    printf("\n");
+
+    // UNIONS
+    union Dados d;
+    d.i = 100;
+    printf("Union definida como 100: %d\n", d.i);
+
+    return 0;
+}

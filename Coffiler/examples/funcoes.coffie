@@ -1,0 +1,28 @@
+#include <stdio.h>
+
+// Funcao com Retorno e Recursao
+int fatorial(int n) {
+    if (n <= 1) return 1;
+    return n * fatorial(n - 1);
+}
+
+// Funcao com Ponteiro (Void)
+void dobrar(int *val) {
+    *val = *val * 2;
+}
+
+int main() {
+    // Teste de Recursao
+    int f = fatorial(5);
+    printf("Fatorial de 5: %d\n", f);
+
+    // Teste de Ponteiros
+    int num = 10;
+    printf("Valor original: %d\n", num);
+    
+    dobrar(&num); // Passa o endereco
+    
+    printf("Valor dobrado via ponteiro: %d\n", num);
+
+    return 0;
+}

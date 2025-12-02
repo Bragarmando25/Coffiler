@@ -1,300 +1,289 @@
 package coffie;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import org.antlr.v4.runtime.Token;
-import org.antlr.v4.runtime.tree.ParseTree;
 
 public class SemanticAnalyzer extends CoffieLangBaseVisitor<String> {
 
     private final SymbolTable table = new SymbolTable();
+    public final List<String> errors = new ArrayList<>(); 
+
+    private void logError(Token token, String msg) {
+        int line = (token != null) ? token.getLine() : 0;
+        errors.add("[ERRO SEMANTICO] Linha " + line + ": " + msg);
+    }
+    
+    private boolean isNumeric(String type) {
+        if (type == null) return false;
+        return type.equals("int") || type.equals("float") || type.equals("double") || type.endsWith("*");
+    }
 
     @Override
     public String visitProg(CoffieLangParser.ProgContext ctx) {
-        for (CoffieLangParser.ClassDefContext classDef : ctx.classDef()) {
-            visit(classDef);
-        }
+        visitChildren(ctx);
         return null;
     }
 
     @Override
-    public String visitClassDef(CoffieLangParser.ClassDefContext ctx) {
-        for (CoffieLangParser.ClassBodyContext body : ctx.classBody()) {
-            visit(body);
+    public String visitStructDef(CoffieLangParser.StructDefContext ctx) {
+        String name = ctx.ID().getText();
+        Map<String, String> fields = new HashMap<>();
+        for(CoffieLangParser.FieldDeclContext fd : ctx.fieldDecl()) {
+            fields.put(fd.ID().getText(), visit(fd.type()));
         }
-        return null;
-    }
-
-    @Override
-    public String visitMainMethod(CoffieLangParser.MainMethodContext ctx) {
-        table.enterScope();
-        visit(ctx.block());
-        table.exitScope();
+        table.declareStruct(name, fields);
         return null;
     }
 
     @Override
     public String visitMethodDef(CoffieLangParser.MethodDefContext ctx) {
-        String methodName = ctx.ID().getText();
-        String returnType = visit(ctx.type());
+        String name = ctx.ID().getText();
+        String retType = visit(ctx.type());
+        List<String> params = new ArrayList<>();
         
-        try {
-            table.declareFunc(methodName, returnType, java.util.Collections.emptyList());
-        } catch (RuntimeException e) {
-            error(e.getMessage(), ctx.ID().getSymbol());
+        if (ctx.params() != null) {
+            for(CoffieLangParser.ParamContext p : ctx.params().param()) {
+                params.add(visit(p.type()));
+            }
         }
 
-        table.enterScope();
+        if (!table.declareFunc(name, retType, params)) {
+            logError(ctx.ID().getSymbol(), "Funcao '" + name + "' ja foi declarada.");
+        }
+
+        table.enterScope(); 
+        
+        if (ctx.params() != null) {
+            for (CoffieLangParser.ParamContext p : ctx.params().param()) {
+                String pName = p.ID().getText();
+                String pType = visit(p.type());
+                table.declareVar(pName, pType, true); 
+            }
+        }
+        
         visit(ctx.block());
         table.exitScope();
-        return null;
-    }
-
-    @Override
-    public String visitBlock(CoffieLangParser.BlockContext ctx) {
-        for (CoffieLangParser.StatementContext stmt : ctx.statement()) {
-            visit(stmt);
-        }
-        return null;
-    }
-
-    @Override
-    public String visitStmtVarDecl(CoffieLangParser.StmtVarDeclContext ctx) {
-        visit(ctx.varDecl());
         return null;
     }
 
     @Override
     public String visitVarDecl(CoffieLangParser.VarDeclContext ctx) {
-        String type = visit(ctx.type());
         String name = ctx.ID().getText();
+        String type = visit(ctx.type());
+        boolean initialized = (ctx.ASSIGN() != null); 
 
-        try {
-            table.declareVar(name, type);
-        } catch (RuntimeException e) {
-            error(e.getMessage(), ctx.ID().getSymbol());
+        // Se for um array (tem [ ]), consideramos inicializado (alocação estática simples)
+        // Isso evita falsos positivos em buffers como 'int buffer[20];'
+        if (ctx.LB_ARR() != null) {
+            initialized = true; 
         }
+
+        if (table.isGlobalScope()) initialized = true; 
 
         if (ctx.expr() != null) {
             String exprType = visit(ctx.expr());
-            checkTypeCompatibility(type, exprType, ctx.ASSIGN().getSymbol());
-            table.initialize(name);
+            if (exprType != null && !checkType(type, exprType)) {
+                logError(ctx.ID().getSymbol(), "Tipo incompativel na inicializacao de '" + name + "'. Esperado: " + type + ", Encontrado: " + exprType);
+            }
         }
-        return null;
-    }
 
-    @Override
-    public String visitStmtAssign(CoffieLangParser.StmtAssignContext ctx) {
-        visit(ctx.assignment());
-        return null;
+        if (!table.declareVar(name, type, initialized)) {
+            logError(ctx.ID().getSymbol(), "Variavel '" + name + "' redeclarada neste escopo.");
+        }
+        return type;
     }
 
     @Override
     public String visitAssignment(CoffieLangParser.AssignmentContext ctx) {
-        String name = ctx.ID(0).getText();
+        String varName;
+        String expectedType = "unknown";
+
+        if (ctx.atom().MULT() != null) {
+             varName = ctx.atom().atom().getText(); 
+             SymbolTable.Symbol sym = table.lookup(varName);
+             if (sym == null) {
+                 logError(ctx.getStart(), "Variavel ponteiro nao declarada: " + varName);
+                 return null;
+             }
+             if (!sym.type.endsWith("*")) {
+                 logError(ctx.getStart(), "Tentativa de desreferenciar variavel que nao e ponteiro: " + varName);
+             }
+             expectedType = sym.type.replace("*", "");
+             sym.isInitialized = true; 
+        }
+        else if (ctx.atom().DOT() != null) {
+            varName = ctx.atom().ID(0).getText(); 
+            String fieldName = ctx.atom().ID(1).getText(); 
+            
+            SymbolTable.Symbol sym = table.lookup(varName);
+            if (sym == null) {
+                logError(ctx.getStart(), "Struct/Union nao declarada: " + varName);
+                return null;
+            }
+            
+            expectedType = "int"; 
+            if (sym.structFields != null && sym.structFields.containsKey(fieldName)) {
+                expectedType = sym.structFields.get(fieldName);
+            }
+            
+            sym.isInitialized = true;
+        }
+        else if (ctx.atom().ID() != null && !ctx.atom().ID().isEmpty()) {
+            varName = ctx.atom().ID(0).getText();
+            SymbolTable.Symbol sym = table.lookup(varName);
+            if (sym == null) {
+                logError(ctx.getStart(), "Variavel nao declarada: " + varName);
+                return null;
+            }
+            expectedType = sym.type;
+            sym.isInitialized = true;
+        } 
+        else {
+            varName = ctx.atom().getText();
+            expectedType = "unknown";
+        }
+
+        String rhsType = visit(ctx.expr());
+        
+        if (rhsType != null && !expectedType.equals("unknown") && !checkType(expectedType, rhsType)) {
+             logError(ctx.getStart(), "Atribuicao incompativel para '" + varName + "'. Esperado: " + expectedType + ", Recebido: " + rhsType);
+        }
+        return expectedType;
+    }
+
+    @Override
+    public String visitScanStmt(CoffieLangParser.ScanStmtContext ctx) {
+        if (ctx.AND_ADDR() != null) {
+            String varName = ctx.atom().getText(); 
+            SymbolTable.Symbol sym = table.lookup(varName);
+            if (sym != null) {
+                sym.isInitialized = true; 
+            }
+        }
+        return null;
+    }
+
+    // --- NOVA CORREÇÃO: Suporte a GETS ---
+    @Override
+    public String visitGetsStmt(CoffieLangParser.GetsStmtContext ctx) {
+        String name = ctx.ID().getText();
         SymbolTable.Symbol sym = table.lookup(name);
-        
         if (sym == null) {
-            error("Variável '" + name + "' não declarada.", ctx.ID(0).getSymbol());
-            return null;
-        }
-
-        String exprType = visit(ctx.expr());
-        
-        // Só valida tipo se for atribuição simples (não obj.prop)
-        if (ctx.ID().size() == 1) {
-             checkTypeCompatibility(sym.type, exprType, ctx.ASSIGN().getSymbol());
-        }
-        
-        table.initialize(name);
-        return null;
-    }
-
-    @Override
-    public String visitStmtCall(CoffieLangParser.StmtCallContext ctx) {
-        visit(ctx.callStmt());
-        return null;
-    }
-
-    @Override
-    public String visitCallStmt(CoffieLangParser.CallStmtContext ctx) {
-        String name = ctx.ID(0).getText();
-        
-        if (ctx.ID().size() > 1) {
-            // obj.metodo()
-            SymbolTable.Symbol obj = table.lookup(name);
-            if (obj == null) {
-                error("Objeto '" + name + "' não declarado.", ctx.ID(0).getSymbol());
-            }
-        }
-        
-        if (ctx.args() != null) {
-            for (CoffieLangParser.ExprContext arg : ctx.args().expr()) {
-                visit(arg);
-            }
+            logError(ctx.ID().getSymbol(), "Variavel nao declarada para gets: " + name);
+        } else {
+            // Marca como inicializada pois gets vai escrever nela
+            sym.isInitialized = true; 
         }
         return null;
     }
-
-    @Override
-    public String visitStmtPrint(CoffieLangParser.StmtPrintContext ctx) {
-        visit(ctx.printStmt());
-        return null;
-    }
-
-    @Override
-    public String visitPrintStmt(CoffieLangParser.PrintStmtContext ctx) {
-        visit(ctx.expr());
-        return null;
-    }
-
-    @Override
-    public String visitStmtIf(CoffieLangParser.StmtIfContext ctx) {
-        visit(ctx.ifStmt());
-        return null;
-    }
-
-    @Override
-    public String visitIfStmt(CoffieLangParser.IfStmtContext ctx) {
-        String condType = visit(ctx.expr());
-        if (!"boolean".equals(condType)) {
-            error("Condição do 'if' deve ser boolean. Encontrado: " + condType, ctx.LP().getSymbol());
-        }
-        table.enterScope();
-        visit(ctx.block(0));
-        table.exitScope();
-        if (ctx.ELSE() != null) {
-            table.enterScope();
-            visit(ctx.block(1));
-            table.exitScope();
-        }
-        return null;
-    }
-
-    @Override
-    public String visitStmtWhile(CoffieLangParser.StmtWhileContext ctx) {
-        visit(ctx.whileStmt());
-        return null;
-    }
-
-    @Override
-    public String visitWhileStmt(CoffieLangParser.WhileStmtContext ctx) {
-        String condType = visit(ctx.expr());
-        if (!"boolean".equals(condType)) {
-            error("Condição do 'while' deve ser boolean.", ctx.LP().getSymbol());
-        }
-        table.enterScope();
-        visit(ctx.block());
-        table.exitScope();
-        return null;
-    }
-
-    @Override
-    public String visitStmtFor(CoffieLangParser.StmtForContext ctx) {
-        visit(ctx.forStmt());
-        return null;
-    }
-
-    @Override
-    public String visitForStmt(CoffieLangParser.ForStmtContext ctx) {
-        table.enterScope();
-        if (ctx.varDecl() != null) visit(ctx.varDecl());
-        if (ctx.assignment() != null) visit((ParseTree) ctx.assignment());
-
-        if (ctx.expr() != null) {
-            String cond = visit(ctx.expr());
-            if (!"boolean".equals(cond)) {
-                error("Condição do 'for' deve ser boolean.", ctx.SEMI(0).getSymbol());
-            }
-        }
-        if (ctx.assignment(1) != null) visit(ctx.assignment(1));
-
-        visit(ctx.block());
-        table.exitScope();
-        return null;
-    }
-
-    @Override
-    public String visitExprAddSub(CoffieLangParser.ExprAddSubContext ctx) {
-        return checkMathOp(visit(ctx.expr(0)), visit(ctx.expr(1)), ((Token) ctx.getChild(1).getPayload()));
-    }
-
-    @Override
-    public String visitExprMultDiv(CoffieLangParser.ExprMultDivContext ctx) {
-        return checkMathOp(visit(ctx.expr(0)), visit(ctx.expr(1)), ((Token) ctx.getChild(1).getPayload()));
-    }
-
-    @Override
-    public String visitExprRelational(CoffieLangParser.ExprRelationalContext ctx) {
-        String t1 = visit(ctx.expr(0));
-        String t2 = visit(ctx.expr(1));
-        if (isNumber(t1) && isNumber(t2)) return "boolean";
-        error("Comparação relacional requer números.", ((Token) ctx.getChild(1).getPayload()));
-        return "boolean";
-    }
-
-    @Override
-    public String visitExprEquality(CoffieLangParser.ExprEqualityContext ctx) {
-        visit(ctx.expr(0));
-        visit(ctx.expr(1));
-        return "boolean";
-    }
-
-    @Override
-    public String visitExprAtom(CoffieLangParser.ExprAtomContext ctx) {
-        return visit(ctx.atom());
-    }
+    // -------------------------------------
 
     @Override
     public String visitAtom(CoffieLangParser.AtomContext ctx) {
         if (ctx.INT_LITERAL() != null) return "int";
-        if (ctx.FLOAT_LITERAL() != null) return "double";
-        if (ctx.STRING_LITERAL() != null) return "String";
-        if (ctx.BOOL_LITERAL() != null) return "boolean";
+        if (ctx.FLOAT_LITERAL() != null) return "float";
+        if (ctx.STRING_LITERAL() != null) return "string";
+        if (ctx.BOOL_LITERAL() != null) return "int"; 
+        if (ctx.CHAR_LITERAL() != null) return "char";
+
+        if (ctx.AND_ADDR() != null) {
+            String varName;
+            if (ctx.atom().DOT() != null) varName = ctx.atom().ID(0).getText(); 
+            else varName = ctx.atom().getText();
+            
+            SymbolTable.Symbol sym = table.lookup(varName);
+            if (sym != null) {
+                return sym.type + "*"; 
+            }
+            return "unknown";
+        }
         
+        if (ctx.MULT() != null) {
+            String ptrType = visit(ctx.atom());
+            if (ptrType != null && ptrType.endsWith("*")) {
+                return ptrType.substring(0, ptrType.length() - 1);
+            }
+            return "int"; 
+        }
+
         if (ctx.ID() != null && !ctx.ID().isEmpty()) {
             String name = ctx.ID(0).getText();
-            
-            // Se for chamada de função (LP presente)
-            if (ctx.LP() != null) return "void"; 
-            
             SymbolTable.Symbol sym = table.lookup(name);
+
+            if (ctx.LP() != null && ctx.LB_ARR() == null) {
+                if (sym == null) {
+                    logError(ctx.getStart(), "Funcao nao declarada: " + name);
+                    return "void";
+                }
+                return sym.type; 
+            }
+
             if (sym == null) {
-                error("Variável '" + name + "' não encontrada.", ctx.ID(0).getSymbol());
+                logError(ctx.getStart(), "Variavel nao declarada: " + name);
                 return "unknown";
             }
+            
+            if (!sym.isInitialized && !sym.isFunction && !sym.isStructDef) {
+                 logError(ctx.getStart(), "[AVISO] Variavel '" + name + "' pode estar sendo usada sem inicializacao.");
+            }
+            
+            if (ctx.DOT() != null) {
+                 String fieldName = ctx.ID(1).getText();
+                 if (sym.structFields != null && sym.structFields.containsKey(fieldName)) {
+                     return sym.structFields.get(fieldName);
+                 }
+                 return "int"; 
+            }
+
             return sym.type;
         }
         
-        if (ctx.expr() != null) return visit(ctx.expr());
+        if (ctx.expr() != null) return visit(ctx.expr()); 
         
         return "unknown";
+    }
+
+    @Override
+    public String visitExprAddSub(CoffieLangParser.ExprAddSubContext ctx) {
+        String t1 = visit(ctx.expr(0));
+        String t2 = visit(ctx.expr(1));
+        if (isNumeric(t1) && isNumeric(t2)) {
+            if (t1.endsWith("*")) return t1;
+            if (t2.endsWith("*")) return t2;
+            return (t1.equals("float") || t2.equals("float")) ? "float" : "int";
+        }
+        logError(ctx.getStart(), "Operacao aritmetica invalida entre " + t1 + " e " + t2);
+        return "unknown";
+    }
+
+    @Override
+    public String visitExprMultDiv(CoffieLangParser.ExprMultDivContext ctx) {
+        String t1 = visit(ctx.expr(0));
+        String t2 = visit(ctx.expr(1));
+        if (isNumeric(t1) && isNumeric(t2)) {
+            return (t1.equals("float") || t2.equals("float")) ? "float" : "int";
+        }
+        return "int";
     }
 
     @Override
     public String visitType(CoffieLangParser.TypeContext ctx) {
         return ctx.getText();
     }
-
-    private void checkTypeCompatibility(String expected, String actual, Token token) {
-        if (expected.equals(actual)) return;
-        if (expected.equals("double") && actual.equals("int")) return;
-        error("Tipo incompatível. Esperado: " + expected + ", encontrado: " + actual, token);
+    
+    private boolean checkType(String expected, String actual) {
+        if (expected.equals(actual)) return true;
+        if (isNumeric(expected) && isNumeric(actual)) return true; 
+        if (expected.contains("char") && actual.equals("string")) return true;
+        if (expected.endsWith("*") && actual.equals("int")) return true; 
+        
+        return false;
     }
-
-    private String checkMathOp(String t1, String t2, Token token) {
-        if (isNumber(t1) && isNumber(t2)) {
-            if (t1.equals("double") || t2.equals("double")) return "double";
-            return "int";
-        }
-        if (t1.equals("String") || t2.equals("String")) return "String";
-        error("Operação matemática inválida entre: " + t1 + " e " + t2, token);
-        return "unknown";
-    }
-
-    private boolean isNumber(String type) {
-        return "int".equals(type) || "double".equals(type);
-    }
-
-    private void error(String msg, Token token) {
-        throw new SemanticError(msg, token);
+    
+    @Override public String visitBlock(CoffieLangParser.BlockContext ctx) { 
+        visitChildren(ctx); return null; 
     }
 }

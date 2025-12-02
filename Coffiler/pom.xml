@@ -24,29 +24,6 @@
 
     <build>
         <plugins>
-            <!-- Plugin do ANTLR4 -->
-            <plugin>
-                <groupId>org.antlr</groupId>
-                <artifactId>antlr4-maven-plugin</artifactId>
-                <version>${antlr.version}</version>
-                <executions>
-                    <execution>
-                        <id>antlr</id>
-                        <phase>generate-sources</phase>
-                        <goals>
-                            <goal>antlr4</goal>
-                        </goals>
-                        <configuration>
-                            <visitor>true</visitor>
-                            <listener>true</listener>
-                            <!-- Garante a pasta correta para o pacote 'coffie' -->
-                            <outputDirectory>${project.build.directory}/generated-sources/antlr4</outputDirectory>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-
-            <!-- Plugin do Compilador Java -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
@@ -54,6 +31,24 @@
                 <configuration>
                     <release>21</release>
                 </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.antlr</groupId>
+                <artifactId>antlr4-maven-plugin</artifactId>
+                <version>${antlr.version}</version>
+                <executions>
+                    <execution>
+                        <id>antlr</id>
+                        <goals>
+                            <goal>antlr4</goal>
+                        </goals>
+                        <configuration>
+                            <visitor>true</visitor>
+                            <listener>true</listener>
+                            </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

@@ -1,37 +1,37 @@
 grammar CoffieLang;
 
 // =======================
-// PROGRAMA
+// PROGRAM
 // =======================
-
 prog
-    : classDef+ EOF
+    : (directive | structDef | unionDef | varDecl SEMI | methodDef)* EOF
+    ;
+
+directive
+    : SHARP_INCLUDE
+    | SHARP_DEFINE
     ;
 
 // =======================
-// ESTRUTURA DE CLASSES
+// DATA STRUCTURES
 // =======================
-
-classDef
-    : PUBLIC CLASS name=ID LB classBody* RB
+structDef
+    : STRUCT ID LB fieldDecl* RB SEMI
     ;
 
-classBody
-    : fieldDecl
-    | methodDef
-    | mainMethod
+unionDef
+    : UNION ID LB fieldDecl* RB SEMI
     ;
 
 fieldDecl
-    : type ID SEMI
+    : type ID (LB_ARR INT_LITERAL RB_ARR)? SEMI 
     ;
 
+// =======================
+// METHODS
+// =======================
 methodDef
-    : PUBLIC type ID LP params? RP block
-    ;
-
-mainMethod
-    : PUBLIC STATIC VOID MAIN LP STRING LB_ARR RB_ARR ID RP block
+    : type ID LP params? RP block
     ;
 
 params
@@ -39,82 +39,117 @@ params
     ;
 
 param
-    : type ID
+    : type ID (LB_ARR RB_ARR)? 
     ;
 
 // =======================
-// BLOCOS E COMANDOS
+// BLOCKS & STATEMENTS
 // =======================
-
 block
     : LB statement* RB
     ;
 
+// CORREÇÃO: "statement" agora inclui o bloco, permitindo if(...) statement
 statement
-    : varDecl SEMI                  # StmtVarDecl
+    : block                         # StmtBlock
+    | varDecl SEMI                  # StmtVarDecl
     | assignment SEMI               # StmtAssign
     | printStmt SEMI                # StmtPrint
+    | scanStmt SEMI                 # StmtScan
+    | getsStmt SEMI                 # StmtGets
+    | putsStmt SEMI                 # StmtPuts
     | ifStmt                        # StmtIf
+    | switchStmt                    # StmtSwitch
     | whileStmt                     # StmtWhile
+    | doWhileStmt SEMI              # StmtDoWhile
     | forStmt                       # StmtFor
     | returnStmt SEMI               # StmtReturn
     | callStmt SEMI                 # StmtCall
+    | BREAK SEMI                    # StmtBreak
     ;
 
 varDecl
-    : type ID (ASSIGN expr)?
+    : type ID (LB_ARR INT_LITERAL RB_ARR)? (ASSIGN expr)? 
     ;
 
 assignment
-    : ID (DOT ID)? ASSIGN expr
+    : atom ASSIGN expr 
     ;
 
 printStmt
-    : SYSTEM_OUT_PRINTLN LP expr RP
+    : PRINTF LP STRING_LITERAL (COMMA expr)* RP
     ;
 
+// CORREÇÃO: Permite &variavel ou &struct.campo
+scanStmt
+    : SCANF LP STRING_LITERAL (COMMA (AND_ADDR? atom)) RP
+    ;
+
+getsStmt
+    : GETS LP ID RP
+    ;
+
+putsStmt
+    : PUTS LP expr RP
+    ;
+
+// CORREÇÃO: Usa 'statement' em vez de 'block' para permitir comandos de uma linha
 ifStmt
-    : IF LP expr RP block (ELSE block)?
+    : IF LP expr RP statement (ELSE statement)?
+    ;
+
+switchStmt
+    : SWITCH LP expr RP LB caseBlock* (DEFAULT COLON statement*)? RB
+    ;
+
+caseBlock
+    : CASE expr COLON statement*
     ;
 
 whileStmt
-    : WHILE LP expr RP block
+    : WHILE LP expr RP statement
+    ;
+
+doWhileStmt
+    : DO statement WHILE LP expr RP
     ;
 
 forStmt
-    : FOR LP (varDecl | assignment)? SEMI expr? SEMI assignment? RP block
+    : FOR LP (varDecl | assignment)? SEMI expr? SEMI assignment? RP statement
     ;
 
 returnStmt
     : RETURN expr?
     ;
 
-// Chamada de método: func() ou obj.metodo()
 callStmt
-    : ID (DOT ID)? LP args? RP
+    : ID LP args? RP
     ;
 
 // =======================
-// EXPRESSÕES
+// EXPRESSIONS
 // =======================
-
 expr
-    : expr (MULT | DIV | MOD) expr      # ExprMultDiv
-    | expr (PLUS | MINUS) expr          # ExprAddSub
-    | expr (LT | GT | LE | GE) expr     # ExprRelational
-    | expr (EQ | NEQ) expr              # ExprEquality
-    | NEW ID LP RP                      # ExprNewObject
-    | atom                              # ExprAtom
+    : NOT expr                                 # ExprUnary
+    | expr (MULT | DIV | MOD) expr             # ExprMultDiv
+    | expr (PLUS | MINUS) expr                 # ExprAddSub
+    | expr (LT | GT | LE | GE) expr            # ExprRelational
+    | expr (EQ | NEQ) expr                     # ExprEquality
+    | expr (AND | OR) expr                     # ExprLogic
+    | atom                                     # ExprAtom
     ;
 
 atom
     : INT_LITERAL
     | FLOAT_LITERAL
+    | CHAR_LITERAL
     | STRING_LITERAL
     | BOOL_LITERAL
-    | ID (DOT ID)?          
-    | ID (DOT ID)? LP args? RP        
+    | ID (LB_ARR expr RB_ARR)? (DOT ID)?  
+    | ID LP args? RP                      
     | LP expr RP
+    | MULT atom        
+    | AND_ADDR atom // CORREÇÃO: Permite & complexo (&d.id)
     ;
 
 args
@@ -122,36 +157,34 @@ args
     ;
 
 type
-    : TYPE_INT
-    | TYPE_DOUBLE
-    | TYPE_BOOLEAN
-    | TYPE_STRING
-    | TYPE_VOID
-    | ID            
+    : (TYPE_INT | TYPE_DOUBLE | TYPE_CHAR | TYPE_VOID) (MULT)?
+    | STRUCT ID (MULT)? 
+    | UNION ID (MULT)?
+    | ID (MULT)?            
     ;
 
 // =======================
 // LEXER
 // =======================
-
-PUBLIC      : 'public';
-CLASS       : 'class';
-STATIC      : 'static';
-VOID        : 'void';
-MAIN        : 'main';
-NEW         : 'new';
+STRUCT      : 'struct';
+UNION       : 'union';
 IF          : 'if';
 ELSE        : 'else';
+SWITCH      : 'switch';
+CASE        : 'case';
+DEFAULT     : 'default';
+BREAK       : 'break';
 WHILE       : 'while';
+DO          : 'do';
 FOR         : 'for';
 RETURN      : 'return';
-SYSTEM_OUT_PRINTLN : 'System.out.println';
-
-// Definições explícitas para evitar warnings
+PRINTF      : 'printf';
+SCANF       : 'scanf';
+GETS        : 'gets';
+PUTS        : 'puts';
 TYPE_INT    : 'int';
-TYPE_DOUBLE : 'double';
-TYPE_BOOLEAN: 'boolean';
-TYPE_STRING : 'String'; 
+TYPE_DOUBLE : 'double' | 'float';
+TYPE_CHAR   : 'char' (MULT)?;
 TYPE_VOID   : 'void';
 
 PLUS        : '+';
@@ -166,7 +199,11 @@ LT          : '<';
 GT          : '>';
 LE          : '<=';
 GE          : '>=';
+AND         : '&&';
+OR          : '||';
+NOT         : '!';
 DOT         : '.';
+COLON       : ':';
 COMMA       : ',';
 SEMI        : ';';
 LP          : '(';
@@ -175,13 +212,20 @@ LB          : '{';
 RB          : '}';
 LB_ARR      : '[';
 RB_ARR      : ']';
+SHARP       : '#';
+AND_ADDR    : '&'; 
+
+SHARP_INCLUDE : '#' [ \t]* 'include' [ \t]* ('<' .*? '>' | '"' .*? '"') -> skip;
+SHARP_DEFINE  : '#' [ \t]* 'define' [ \t]* ID [ \t]* .*? '\r'? '\n' -> skip;
 
 BOOL_LITERAL    : 'true' | 'false';
 INT_LITERAL     : [0-9]+;
-FLOAT_LITERAL   : [0-9]+ '.' [0-9]+;
+FLOAT_LITERAL: [0-9]+ '.' [0-9]* | '.' [0-9]+ ;
+CHAR_LITERAL    : '\'' . '\'' ;
 STRING_LITERAL  : '"' (~["\r\n])* '"';
 
 ID : [a-zA-Z_] [a-zA-Z_0-9]*;
 
 COMMENT : '//' ~[\r\n]* -> skip;
+BLOCK_COMMENT : '/*' .*? '*/' -> skip;
 WS      : [ \t\r\n]+ -> skip;
